@@ -268,7 +268,7 @@ This can be the case if an additional module installed on your database changes
                 # not supplier and not customer
                 create_partner(address['id'], partner_vals, partner_defaults)
             else:
-                if address['partner_id'] not in partner_found:
+                if False:
                     # Main partner address
                     partner_obj.write(
                         cr, SUPERUSER_ID, address['partner_id'], partner_vals)
