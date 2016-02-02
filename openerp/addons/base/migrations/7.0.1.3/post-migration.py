@@ -310,7 +310,7 @@ This can be the case if an additional module installed on your database changes
                     cr, SUPERUSER_ID, dict_values)
                 partner_store_insert.append(values)
             else:
-                if dict_values['partner_id'] not in partner_found:
+                if False:
                     for f in ['name', 'id', 'type']:
                         del dict_values[f]
                     dict_values['id'] = dict_values['partner_id']
