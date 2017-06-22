@@ -90,4 +90,4 @@ def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     migrate_purchase_order_addresses(cr, pool)
     set_purchase_order_payment_term(cr, pool)
-    migrate_purchase_order_line_names(cr, pool)
+    # migrate_purchase_order_line_names(cr, pool)
