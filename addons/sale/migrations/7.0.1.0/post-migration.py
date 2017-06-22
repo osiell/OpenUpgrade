@@ -75,4 +75,4 @@ def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     migrate_sale_order_addresses(cr, pool)
     migrate_sale_order_line_addresses(cr, pool)
-    migrate_sale_order_line_names(cr, pool)
+    # migrate_sale_order_line_names(cr, pool)
