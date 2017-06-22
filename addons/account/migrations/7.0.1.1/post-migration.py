@@ -217,7 +217,7 @@ def merge_account_cashbox_line(cr, pool):
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     migrate_invoice_addresses(cr, pool)
-    migrate_invoice_names(cr, pool)
+    # migrate_invoice_names(cr, pool)
     lock_closing_reconciliations(cr, pool)
     migrate_payment_term(cr, pool)
     merge_account_cashbox_line(cr, pool)
