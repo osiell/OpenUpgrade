@@ -102,9 +102,9 @@ def migrate_invoice_lines(env):
 def migrate(cr, version):
     with api.Environment.manage():
         env = api.Environment(cr, SUPERUSER_ID, {})
-        migrate_sale_order_lines(env)
+        # migrate_sale_order_lines(env)
         # see if account_invoice_layout is installed, migrate that too
-        if env['ir.module.module'].search([
-                ('name', '=', 'account_invoice_layout'),
-                ('state', '!=', 'uninstalled')]):
-            migrate_invoice_lines(env)
+        # if env['ir.module.module'].search([
+        #         ('name', '=', 'account_invoice_layout'),
+        #         ('state', '!=', 'uninstalled')]):
+        #     migrate_invoice_lines(env)
