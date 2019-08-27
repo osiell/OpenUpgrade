@@ -23,6 +23,7 @@ from openupgrade import openupgrade
 from openerp import pooler, SUPERUSER_ID
 from openerp.osv import osv
 import psycopg2
+#from gi.overrides.GLib import attr
 
 force_defaults = {
     'ir.mail_server': [('active', True)],
@@ -60,6 +61,174 @@ def migrate_company(cr):
             SET rml_footer = rml_footer1
         """)
 
+
+def migrate_contact(cr, pool):
+    
+    partner_obj = pool.get('res.partner')
+    
+    cr.execute(
+        "ALTER TABLE res_partner_contact "
+        "ADD column openupgrade_7_migrated_to_partner_id "
+        " INTEGER")
+    
+    cr.execute(
+    "ALTER TABLE res_partner "
+    "ADD column openupgrade_7_migrated_from_contact_id "
+    " INTEGER")
+    
+    cr.execute(
+        "ALTER TABLE res_partner_contact ADD FOREIGN KEY "
+        "(openupgrade_7_migrated_to_partner_id) "
+        "REFERENCES res_partner ON DELETE SET NULL")
+    
+    fields = ['id', 'function', 'sequence_partner', 'address_id', 'fax', 'extension', 'sequence_contact', 'date_start', 'date_stop',
+              'contact_id', 'phone', 'state', 'other', 'email', 'id_sfl', 'id_adherent', 'mobile', 'default_ok', 'actif_ok', 'active',
+              'fax_e164', 'mobile_e164', 'phone_e164', 'count_phone_dials']
+    
+    
+    def get_contact_fields(cr, fields_contact):
+        
+        cr.execute(
+        "SELECT column_name "
+        "FROM information_schema.columns "
+        "WHERE table_name = 'res_partner_contact';")
+        available_fields = set(i[0] for i in cr.fetchall())
+        lost_fields = set(fields_contact) - available_fields
+        fields = available_fields.intersection(fields_contact)
+        
+        return fields
+    
+    def set_contact_partner(contact_id, partner_id):
+        cr.execute(
+            "UPDATE res_partner_contact "
+            "SET openupgrade_7_migrated_to_partner_id = %s "
+            "WHERE id = %s",
+            (partner_id, contact_id))
+    
+    
+    def create_partner(cr, contact_id, vals, partner_address_id, already_contact):
+        """
+        Create a partner from a contact. Update the vals
+        with the defaults only if the keys do not occur
+        already in vals. Register the created partner_id
+        on the obsolete contact table
+        """
+
+        vals['contact_type'] = 'standalone'
+        partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
+        partner_id = int(partner_id)
+        #print("PARTNER ID :", partner_id)
+        if partner_address_id != False:
+            #partner_obj.write(cr, SUPERUSER_ID, [partner_id], {'contact_type': 'attached'})
+            cr.execute("UPDATE res_partner "
+                       "SET contact_type='attached' "
+                       "WHERE id=%s",(partner_id,))
+            if partner_address_id not in already_contact:
+                cr.execute("UPDATE res_partner "
+                           "SET contact_id=%s "
+                           "WHERE id=%s ",(partner_id,partner_address_id))
+                #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
+                                  #{'contact_id': partner_id})
+            #else:
+                #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
+                                  #{'other_contact_ids': ([6,0,partner_id])})
+        set_contact_partner(contact_id, partner_id)
+        return partner_id
+    
+    def set_function(partner_address_id, function):
+        partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
+                          {'function': function})
+        
+        
+    def load_contact_vals(cr, contact_id, fields):
+        query = ("SELECT " + ', '.join(fields) + "\n"
+            "FROM res_partner_contact\n"
+            "WHERE id = %s"
+            )
+        openupgrade.logged_query(
+            cr, query,(contact_id,))
+        row_values = cr.fetchall()
+        for row in row_values:
+            row_selected = [val or False for val in row]
+            dict_values = dict(zip(fields,row_selected))
+        #print("OLD CONTACT VALS : ", dict_values)
+        return dict_values
+    
+    def get_address_partner_id(cr, old_address_id):
+        query = ("SELECT openupgrade_7_migrated_to_partner_id "
+            "FROM res_partner_address "
+            "WHERE id = %s"
+            )
+        openupgrade.logged_query(
+            cr, query,(old_address_id,))
+        row_values = cr.fetchall()
+        for row in row_values:
+            new_id = row[0]
+        #print("NEW ID :", new_id)
+        return new_id
+    
+    def get_partner_fields(cr):
+        cr.execute(
+        "SELECT column_name "
+        "FROM information_schema.columns "
+        "WHERE table_name = 'res_partner';")
+        available_fields = [i[0] for i in cr.fetchall()]
+        
+        return available_fields
+    
+    def proccess_contact(cr, pool, fields, whereclause, args=None ):
+        
+        openupgrade.logged_query(
+            cr, "\n"
+            "SELECT " + ', '.join(fields) + "\n"
+            "FROM res_partner_job\n"
+            "WHERE " + whereclause, args or ())
+        row_values = cr.fetchall()
+        already_contact = []
+        contact_created = []
+        for row in row_values:
+            # default
+            contact_vals = {}
+            partner_address_id = False
+             
+            row_selected = [val or False for val in row]
+            dict_values = dict(zip(fields,row_selected))
+            
+            old_fields_contact = get_partner_fields(cr)
+            fields_contact = get_contact_fields(cr, old_fields_contact)
+            if dict_values['contact_id'] != False:
+                contact_vals = load_contact_vals(cr, dict_values['contact_id'], fields_contact)
+            if dict_values['address_id'] != False:
+                partner_address_id = get_address_partner_id(cr, dict_values['address_id'])
+            if dict_values['contact_id'] != False:
+                create_partner(cr, dict_values['contact_id'], contact_vals, partner_address_id, already_contact)
+                contact_created.append(dict_values['contact_id'])
+                already_contact.append(partner_address_id)
+            if partner_address_id:
+                set_function(partner_address_id, dict_values['function'])
+        
+        
+#         openupgrade.logged_query(
+#             cr, "\n"
+#             "SELECT " + ', .'.join(fields) + "\n"
+#             "FROM \n"
+#             "WHERE " + whereclause, args or ())
+#         cr.execute("SELECT " + ', '.join(fields_contact) + "\n"
+#                    "FROM res_partner_contact\n")
+#         row_values =  cr.fetchall()
+#         for row in row_values:
+#             row_selected = [val or False for val in row]
+#             dict_values = dict(zip(fields,row_selected))
+#             
+#             old_fields_contact = get_partner_fields(cr)
+#             fields_contact = get_contact_fields(cr, old_fields_contact)
+#             contact_vals = load_contact_vals(cr, dict_values['contact_id'], fields_contact)
+#             if dict_values['contact_id'] not in contact_created:
+#                 create_partner(cr, dict_values['contact_id'], contact_vals, False, already_contact)
+#             
+    
+    proccess_contact(cr, pool, fields, "id is not null")
+    
 
 def migrate_base_contact(cr):
     """
@@ -225,19 +394,19 @@ def migrate_partner_address(cr, pool):
         "WHERE table_name = 'res_partner_address';")
     available_fields = set(i[0] for i in cr.fetchall())
     lost_fields = set(fields) - available_fields
-    if lost_fields:
-        openupgrade.logger.warning("""\
-The following columns are not present in the table of %s: %s.
-
-This can be the case if an additional module installed on your database changes
- the type of a regular column to a non-stored function or related field.
-""", 'res_partner_address', ", ".join(lost_fields))
     fields = available_fields.intersection(fields)
 
     def set_address_partner(address_id, partner_id):
         cr.execute(
             "UPDATE res_partner_address "
             "SET openupgrade_7_migrated_to_partner_id = %s "
+            "WHERE id = %s",
+            (partner_id, address_id))
+        
+    def set_partner_address(address_id, partner_id):
+        cr.execute(
+            "UPDATE res_partner "
+            "SET parent_id = %s "
             "WHERE id = %s",
             (partner_id, address_id))
 
@@ -250,19 +419,19 @@ This can be the case if an additional module installed on your database changes
                 "SET openupgrade_7_address_processed = True "
                 "WHERE id in %s", (tuple(ids),))
 
-    def create_partner(address_id, vals, defaults):
+    def create_partner(address_id, vals):
         """
         Create a partner from an address. Update the vals
         with the defaults only if the keys do not occur
         already in vals. Register the created partner_id
         on the obsolete address table
         """
-        for key in defaults:
-            if key not in vals:
-                vals[key] = defaults[key]
-
+        
         partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
+        partner_obj.write(cr, SUPERUSER_ID, [partner_id], {
+            'parent_id': vals['partner_id']})
         set_address_partner(address_id, partner_id)
+        return partner_id
 
     def process_address_type(cr, pool, fields, whereclause, args=None):
         """
@@ -286,10 +455,13 @@ This can be the case if an additional module installed on your database changes
         for row in rows_values:
             row_cleaned = [val or False for val in row]
             dict_values = dict(zip(fields, row_cleaned))
-
+            if dict_values['name'] == False:
+                dict_values['name'] = ''
+            create_partner(dict_values['id'], dict_values)
             dict_values['openupgrade_7_migrated_from_address_id'] = \
                 dict_values['id']
             values = {}
+                        
             partner_defaults = {
                 # list of values that we should not overwrite
                 # in existing partners
@@ -297,9 +469,9 @@ This can be the case if an additional module installed on your database changes
                 'is_company': dict_values['type'] != 'contact',
                 'type': dict_values['type'],
                 'name': dict_values['name'] or '/',
-                'parent_id': dict_values['partner_id'],
+                'parent_id' : dict_values['partner_id']
             }
-
+            
             if not dict_values['partner_id']:
                 for f in ['name', 'id', 'type', 'partner_id']:
                     del dict_values[f]
@@ -331,9 +503,6 @@ This can be the case if an additional module installed on your database changes
             processed_ids.append(
                 values['openupgrade_7_migrated_from_address_id'])
 
-        _insert_partners(cr, pool, partner_store_insert)
-        _update_partners(cr, pool, partner_store_update)
-
         # Update propagate_fields from partner parent
         # TODO Use propagate_fields = [ 'lang', 'tz', 'customer', 'supplier',]
         # to generate this query
@@ -358,26 +527,27 @@ This can be the case if an additional module installed on your database changes
             " AND openupgrade_7_migrated_to_partner_id IS NULL")
 
     # Process all addresses, default type first
-    process_address_type(cr, pool, fields.copy(), "type = 'default'")
+    print("PROCCESS TYPE INVOICE....")
+    process_address_type(cr, pool, fields.copy(), "id is not NULL")
     # then try the ones without type and without name
-    process_address_type(
-        cr, pool, fields.copy(),
-        "(type IS NULL OR type = '') AND (name IS NULL OR name = '')")
+    #process_address_type(
+     #   cr, pool, fields.copy(),
+      #  "(type IS NULL OR type = '') AND (name IS NULL OR name = '')")
     # and only then just without type
-    process_address_type(
-        cr, pool, fields.copy(),
-        "(type IS NULL OR type = '') AND name <> ''")
+    #process_address_type(
+      #  cr, pool, fields.copy(),
+     #   "(type IS NULL OR type = '') AND name <> ''")
     # Not in clause is very slow. we replace them by an ubptade on a new column
-    set_address_processed(processed_ids)
-    process_address_type(
-        cr, pool, fields.copy(),
-        "openupgrade_7_address_processed IS NULL ")
+    #set_address_processed(processed_ids)
+    #process_address_type(
+      #  cr, pool, fields.copy(),
+     #   "openupgrade_7_address_processed IS NULL ")
 
     # Check that all addresses have been migrated
-    cr.execute(
-        "SELECT COUNT(*) FROM res_partner_address "
-        "WHERE openupgrade_7_migrated_to_partner_id is NULL ")
-    assert(not cr.fetchone()[0])
+    #cr.execute(
+     #   "SELECT COUNT(*) FROM res_partner_address "
+      #  "WHERE openupgrade_7_migrated_to_partner_id is NULL ")
+    #assert(not cr.fetchone()[0])
 
 
 def update_users_partner(cr, pool):
@@ -519,8 +689,9 @@ def migrate(cr, version):
     migrate_ir_translation(cr)
     migrate_company(cr)
     migrate_partner_address(cr, pool)
-    migrate_base_contact(cr)
-    update_users_partner(cr, pool)
+    #migrate_base_contact(cr)
+    migrate_contact(cr, pool)
+    #update_users_partner(cr, pool)
     reset_currency_companies(cr, pool)
     migrate_res_company_logo(cr, pool)
     openupgrade.load_xml(

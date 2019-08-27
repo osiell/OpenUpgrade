@@ -257,6 +257,7 @@ def load_module_graph(cr, graph, status=None, perform_checks=True, skip_modules=
 
 def _check_module_names(cr, module_names):
     mod_names = set(module_names)
+    print("MODULES NAMES :", mod_names)
     if 'base' in mod_names:
         # ignore dummy 'all' module
         if 'all' in mod_names:

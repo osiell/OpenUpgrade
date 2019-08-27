@@ -23,6 +23,7 @@
 # Ignored: removal of integer_big which openerp 6.1 claims is currently unused
 
 from openupgrade import openupgrade
+from openerp import pooler, SUPERUSER_ID
 from openerp.addons.openupgrade_records.lib import apriori
 
 obsolete_modules = (
@@ -179,15 +180,15 @@ def create_users_partner(cr):
         "WHERE partner_id IS NULL")
     sql_insert_partner = (
         "INSERT INTO res_partner "
-        "(name, active) "
-        "VALUES(%s,%s) RETURNING id")
+        "(name, active, contact_type) "
+        "VALUES(%s,%s,'standalone') RETURNING id")
     if warning_installed:
         sql_insert_partner = (
             "INSERT INTO res_partner "
-            "(name, active,picking_warn,sale_warn,"
+            "(name, active, contact_type, picking_warn,sale_warn,"
             "invoice_warn,purchase_warn) "
             "VALUES("
-            "%s,%s,'no-message','no-message','no-message','no-message') "
+            "%s,%s,'standalone','no-message','no-message','no-message','no-message') "
             "RETURNING id")
     for row in cr.fetchall():
         cr.execute(sql_insert_partner, row[1:])
@@ -215,6 +216,17 @@ def remove_obsolete_modules(cr, obsolete_modules):
         WHERE name in %s AND state <> 'uninstalled'
         """, (obsolete_modules,))
 
+"""
+def install_custom_modules(cr, pool, module_name):
+    
+    module_obj = pool.get('ir.module.module')
+    args = [('name', '=', module_name)]
+    ids = module_obj.search(cr, SUPERUSER_ID, args)
+    print("CUSTOM MODULE IDS :", ids)
+    module_obj.button_install(cr, SUPERUSER_ID, ids)
+    module_obj.button_upgrade(cr, SUPERUSER_ID, ids)
+    """
+    
 
 @openupgrade.migrate()
 def migrate(cr, version):
