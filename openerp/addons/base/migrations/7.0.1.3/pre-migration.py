@@ -35,6 +35,11 @@ obsolete_modules = (
     'fetchmail_crm_claim',
     'fetchmail_crm',
     'fetchmail_hr_recruitment',
+#custom
+    'pir_outlook',
+    'plugin',
+    'plugin_outlook',
+    'report_webkit'
 )
 
 column_renames = {
@@ -181,7 +186,7 @@ def create_users_partner(cr):
     sql_insert_partner = (
         "INSERT INTO res_partner "
         "(name, active, contact_type) "
-        "VALUES(%s,%s,'standalone') RETURNING id")
+        "VALUES(%s,%s,'standalone') RETURNING id")# Ajout du contact_type qui est requis en base.
     if warning_installed:
         sql_insert_partner = (
             "INSERT INTO res_partner "
@@ -216,18 +221,16 @@ def remove_obsolete_modules(cr, obsolete_modules):
         WHERE name in %s AND state <> 'uninstalled'
         """, (obsolete_modules,))
 
-"""
-def install_custom_modules(cr, pool, module_name):
+def pre_migrate_mail(cr):
+    #Suppression des mails qui n'ont plus de res_id
+    cr.execute("""
+    DELETE
+    FROM mail_message
+    WHERE res_id NOT IN (SELECT id
+                    FROM res_partner)
+    AND model='res.partner'
+    """)
     
-    module_obj = pool.get('ir.module.module')
-    args = [('name', '=', module_name)]
-    ids = module_obj.search(cr, SUPERUSER_ID, args)
-    print("CUSTOM MODULE IDS :", ids)
-    module_obj.button_install(cr, SUPERUSER_ID, ids)
-    module_obj.button_upgrade(cr, SUPERUSER_ID, ids)
-    """
-    
-
 @openupgrade.migrate()
 def migrate(cr, version):
     disable_demo_data(cr)
@@ -240,6 +243,7 @@ def migrate(cr, version):
     openupgrade.rename_tables(cr, table_renames)
     openupgrade.rename_xmlids(cr, xmlid_renames)
     openupgrade.rename_models(cr, model_renames)
+    pre_migrate_mail(cr)
     migrate_ir_attachment(cr)
     create_users_partner(cr)
     remove_obsolete_modules(cr, obsolete_modules)

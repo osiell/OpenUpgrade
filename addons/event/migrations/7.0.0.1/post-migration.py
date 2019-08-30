@@ -74,8 +74,8 @@ def migrate_contacts2(cr, pool):
         cr, pool, modele[0],
         modele[1], modele[1])
         print("Done ....")
-
-
+    
+    
 @openupgrade.migrate()
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)

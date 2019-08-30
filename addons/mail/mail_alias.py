@@ -98,8 +98,6 @@ class mail_alias(osv.Model):
 
     _sql_constraints = [
         #('alias_unique', 'UNIQUE(alias_name)', 'Unfortunately this email alias is already used, please choose a unique one')
-        #('alias_unique', 'Unfortunately this email alias is already used, please choose a unique one')
-
     ]
 
     def _check_alias_defaults(self, cr, uid, ids, context=None):

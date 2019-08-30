@@ -127,6 +127,7 @@ def migrate_contact(cr, pool):
                 cr.execute("UPDATE res_partner "
                            "SET contact_id=%s "
                            "WHERE id=%s ",(partner_id,partner_address_id))
+                # FIXME (Code fonctionnel quand on pourra utiliser contact_id et other_contact_ids; leur utilisation peut être vérifiée avec hasattr()
                 #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
                                   #{'contact_id': partner_id})
             #else:
@@ -196,18 +197,17 @@ def migrate_contact(cr, pool):
             
             old_fields_contact = get_partner_fields(cr)
             fields_contact = get_contact_fields(cr, old_fields_contact)
-            if dict_values['contact_id'] != False:
-                contact_vals = load_contact_vals(cr, dict_values['contact_id'], fields_contact)
             if dict_values['address_id'] != False:
                 partner_address_id = get_address_partner_id(cr, dict_values['address_id'])
             if dict_values['contact_id'] != False:
+                contact_vals = load_contact_vals(cr, dict_values['contact_id'], fields_contact)
                 create_partner(cr, dict_values['contact_id'], contact_vals, partner_address_id, already_contact)
                 contact_created.append(dict_values['contact_id'])
                 already_contact.append(partner_address_id)
             if partner_address_id:
                 set_function(partner_address_id, dict_values['function'])
         
-        
+# FIXME (Prévu por le reste des contacts non migrés)
 #         openupgrade.logged_query(
 #             cr, "\n"
 #             "SELECT " + ', .'.join(fields) + "\n"
@@ -403,7 +403,7 @@ def migrate_partner_address(cr, pool):
             "WHERE id = %s",
             (partner_id, address_id))
         
-    def set_partner_address(address_id, partner_id):
+    def set_partner_address(address_id, partner_id):#Pas utilisé
         cr.execute(
             "UPDATE res_partner "
             "SET parent_id = %s "
@@ -529,25 +529,26 @@ def migrate_partner_address(cr, pool):
     # Process all addresses, default type first
     print("PROCCESS TYPE INVOICE....")
     process_address_type(cr, pool, fields.copy(), "id is not NULL")
-    # then try the ones without type and without name
-    #process_address_type(
-     #   cr, pool, fields.copy(),
-      #  "(type IS NULL OR type = '') AND (name IS NULL OR name = '')")
-    # and only then just without type
-    #process_address_type(
-      #  cr, pool, fields.copy(),
-     #   "(type IS NULL OR type = '') AND name <> ''")
-    # Not in clause is very slow. we replace them by an ubptade on a new column
-    #set_address_processed(processed_ids)
-    #process_address_type(
-      #  cr, pool, fields.copy(),
-     #   "openupgrade_7_address_processed IS NULL ")
-
-    # Check that all addresses have been migrated
-    #cr.execute(
-     #   "SELECT COUNT(*) FROM res_partner_address "
-      #  "WHERE openupgrade_7_migrated_to_partner_id is NULL ")
-    #assert(not cr.fetchone()[0])
+    # Cas gérés dans le cas ci-dessus 
+#     # then try the ones without type and without name
+#     #process_address_type(
+#      #   cr, pool, fields.copy(),
+#       #  "(type IS NULL OR type = '') AND (name IS NULL OR name = '')")
+#     # and only then just without type
+#     #process_address_type(
+#       #  cr, pool, fields.copy(),
+#      #   "(type IS NULL OR type = '') AND name <> ''")
+#     # Not in clause is very slow. we replace them by an ubptade on a new column
+#     #set_address_processed(processed_ids)
+#     #process_address_type(
+#       #  cr, pool, fields.copy(),
+#      #   "openupgrade_7_address_processed IS NULL ")
+# 
+#     # Check that all addresses have been migrated
+#     #cr.execute(
+#      #   "SELECT COUNT(*) FROM res_partner_address "
+#       #  "WHERE openupgrade_7_migrated_to_partner_id is NULL ")
+#     #assert(not cr.fetchone()[0])
 
 
 def update_users_partner(cr, pool):
@@ -677,6 +678,15 @@ def _update_partners(cr, pool, vals):
         cr.rollback()
         raise osv.except_osv("ORM bypass error", sql_err.pgerror)
 
+# FIXME Migration des correspondances de base_calendar.invite.attendee
+# def migrate_contacts(cr, pool):
+#     
+#     base_calandar_attendee_obj = pool.get('base_calendar.invite.attendee')
+#     base_ids = base_calandar_attendee_obj.search(cr, SUPERUSER_ID, [])
+#     base_objs = base_calandar_attendee_obj.browse(cr, SUPERUSER_ID, base_ids)
+#     for base_obj in base_objs:
+#         for contact in base_obj.contact_ids:
+#             print("CONTACT .................................... :",contact)
 
 @openupgrade.migrate()
 def migrate(cr, version):
@@ -689,9 +699,9 @@ def migrate(cr, version):
     migrate_ir_translation(cr)
     migrate_company(cr)
     migrate_partner_address(cr, pool)
-    #migrate_base_contact(cr)
+    #migrate_base_contact(cr)  # Remplacé par migrate_contact
     migrate_contact(cr, pool)
-    #update_users_partner(cr, pool)
+    update_users_partner(cr, pool)
     reset_currency_companies(cr, pool)
     migrate_res_company_logo(cr, pool)
     openupgrade.load_xml(

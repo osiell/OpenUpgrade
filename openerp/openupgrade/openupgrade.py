@@ -33,3 +33,20 @@ _new_name = "openupgradelib.%s" % _short_name
 _modules = __import__(_new_name, globals(), locals(), ['*'])
 for _i in dir(_modules):
     locals()[_i] = getattr(_modules, _i)
+    
+    
+def set_partner_id_from_contact_id(
+                cr, pool, model_name, partner_field, contact_field, table=None):
+
+
+    openupgrade.logged_query(
+        cr,
+        """
+        UPDATE %(table)s
+        SET %(partner_field)s=contact.openupgrade_7_migrated_to_partner_id
+        FROM res_partner_contact contact
+        WHERE %(table)s.%(contact_field)s=contact.id
+        """ % {'table': model_name,
+               'partner_field': partner_field,
+               'contact_field': contact_field})
+    
