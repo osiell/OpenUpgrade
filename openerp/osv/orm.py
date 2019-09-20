@@ -3435,7 +3435,7 @@ class BaseModel(object):
             # TODO the condition could use fields_get_keys().
             if f._fields_id not in other._columns.keys():
                 if f._fields_id not in other._inherit_fields.keys():
-                    raise except_orm('Programming Error', "There is no reference field '%s' found for '%s'" % (f._fields_id, f._obj,))
+                    raise except_orm('Programming Error', "There is no reference field '%s' found for '%s' (%s)" % (f._fields_id, f._obj,self._table)) 
 
     def _m2m_raise_or_create_relation(self, cr, f):
         m2m_tbl, col1, col2 = f._sql_names(self)

@@ -33,8 +33,8 @@ _new_name = "openupgradelib.%s" % _short_name
 _modules = __import__(_new_name, globals(), locals(), ['*'])
 for _i in dir(_modules):
     locals()[_i] = getattr(_modules, _i)
-    
-    
+
+
 def set_partner_id_from_contact_id(
                 cr, pool, model_name, partner_field, contact_field, table=None):
 
@@ -49,4 +49,4 @@ def set_partner_id_from_contact_id(
         """ % {'table': model_name,
                'partner_field': partner_field,
                'contact_field': contact_field})
-    
+
