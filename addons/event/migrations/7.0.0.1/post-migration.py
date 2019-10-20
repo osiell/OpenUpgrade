@@ -79,6 +79,7 @@ def migrate_contacts2(cr, pool):
         ('event_event', 'responsable_ir_contact_id'),
         ('event_event', 'location_contact_id'),
         ('event_registration', 'registrered_contact_id'),
+        ('event_registration', 'contact_id'),  # JUST ADDED
         ('mail_message', 'contact_id'),
         ('perm_role_allocation', 'contact_id'),
         ('pir_adhesion', 'contact_communication_id'),
@@ -108,6 +109,8 @@ def migrate_contacts2(cr, pool):
         ('res_partner_contact_category_job', 'contact_id'),
         ('res_partner_job', 'contact_id'),
         ('res_partner_newsletter_subscription', 'contact_id'),
+
+        ('res_partner_contact_mailing_list_rel', 'contact_id'),
         # ('res_users', 'contact_id'),
     ]
 
@@ -136,22 +139,14 @@ def migrate_contacts2(cr, pool):
         # 'event_event_location_contact_id_fkey'
 
     'event_event_location_contact_id_fkey',
-    'event_event_location_contact_id_fkey',
-    'event_event_responsable_ir_contact_id_fkey',
     'event_event_responsable_ir_contact_id_fkey',
     'event_registration_registrered_contact_id_fkey',
-    'event_registration_registrered_contact_id_fkey',
-    'perm_role_allocation_contact_id_fkey',
+    'event_registration_contact_id_fkey',
     'perm_role_allocation_contact_id_fkey',
     'pir_adhesion_contact1_id_backup_fkey',
-    'pir_adhesion_contact1_id_backup_fkey',
-    'pir_adhesion_contact1_id_fkey',
     'pir_adhesion_contact1_id_fkey',
     'pir_adhesion_contact2_id_backup_fkey',
-    'pir_adhesion_contact2_id_backup_fkey',
     'pir_adhesion_contact2_id_fkey',
-    'pir_adhesion_contact2_id_fkey',
-    'pir_adhesion_contact3_id_backup_fkey',
     'pir_adhesion_contact3_id_backup_fkey',
     'pir_adhesion_contact3_id_fkey',
     'pir_adhesion_contact4_id_backup_fkey',

@@ -371,7 +371,11 @@ def init_module_models(cr, module_name, obj_list):
     _logger.info('module %s: creating or updating database tables', module_name)
     todo = []
     for obj in obj_list:
-        result = obj._auto_init(cr, {'module': module_name})
+        try:
+            result = obj._auto_init(cr, {'module': module_name})
+        except Exception, e: # FIXME debug
+            _logger.error('module %s: obj %s', module_name, obj._name)
+            raise
         if result:
             todo += result
         if hasattr(obj, 'init'):

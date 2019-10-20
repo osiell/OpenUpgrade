@@ -3267,11 +3267,18 @@ class BaseModel(object):
                                 cr.commit()
                                 msg = "Table '%s': dropping index for column '%s' of type '%s' as it is not required anymore"
                                 _schema.debug(msg, self._table, k, f._type)
+                            try:
+                                if isinstance(f, fields.many2one) or (isinstance(f, fields.function) and f._type == 'many2one' and f.store):
+                                    dest_model = self.pool.get(f._obj)
+                                    if dest_model._table != 'ir_actions':
+                                        self._m2o_fix_foreign_key(cr, self._table, k, dest_model, f.ondelete)
+                            except Exception, e: # FIXME debug
+                                _logger.error('field %s, type %s, comodel %s',
+                                             k,
+                                             f._type, f._obj)
+                                raise
 
-                            if isinstance(f, fields.many2one) or (isinstance(f, fields.function) and f._type == 'many2one' and f.store):
-                                dest_model = self.pool.get(f._obj)
-                                if dest_model._table != 'ir_actions':
-                                    self._m2o_fix_foreign_key(cr, self._table, k, dest_model, f.ondelete)
+
 
                     # The field doesn't exist in database. Create it if necessary.
                     else:

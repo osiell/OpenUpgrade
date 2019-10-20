@@ -21,7 +21,7 @@
 
 # Maybe: investigate impact of 'model' field on ir.translation
 # Ignored: removal of integer_big which openerp 6.1 claims is currently unused
-
+import sys
 from openupgrade import openupgrade
 from openerp import pooler, SUPERUSER_ID
 from openerp.addons.openupgrade_records.lib import apriori
@@ -35,7 +35,7 @@ obsolete_modules = (
     'fetchmail_crm_claim',
     'fetchmail_crm',
     'fetchmail_hr_recruitment',
-#custom
+    #custom
     'pir_outlook',
     'plugin',
     'plugin_outlook',
@@ -230,9 +230,12 @@ def pre_migrate_mail(cr):
                     FROM res_partner)
     AND model='res.partner'
     """)
-    
+
 @openupgrade.migrate()
 def migrate(cr, version):
+    print('# pre-migration start (base module)')
+    sys.stdout.flush()
+
     disable_demo_data(cr)
     update_base_sql(cr)
     openupgrade.update_module_names(
