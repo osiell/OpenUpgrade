@@ -106,6 +106,18 @@ def migrate_contact(cr, pool):
     fields_contact = _get_contact_fields(partner_fields)
     info('## contact fields ##',fields_contact)
 
+    def _get_address_fields(fields_list):
+        cr.execute(
+        "SELECT column_name "
+        "FROM information_schema.columns "
+        "WHERE table_name = 'res_partner_address';")
+        available_fields = set(i[0] for i in cr.fetchall())
+        lost_fields = set(fields_list) - available_fields
+        info('## lost fields (res_partner_address) ##', lost_fields)
+        # keep fields that are found in res_partner // to avoid crash
+        return available_fields.intersection(fields_list)
+    fields_address = _get_address_fields(partner_fields)
+    info('## address fields ##',fields_address)
     # PARTNER (contact) CREATION
     def _set_contact_partner(contact_id, partner_id):
         cr.execute(
@@ -144,6 +156,11 @@ def migrate_contact(cr, pool):
                 cr.execute("UPDATE res_partner "
                            "SET contact_id=%s "
                            "WHERE id=%s " % (partner_id,partner_address_id))
+            else:
+                address_vals = load_address_vals(partner_address_id, fields_address)
+                address_vals['contact_id'] = partner_id
+                new_address_id = partner_obj.create(cr, SUPERUSER_ID, address_vals)
+                _set_function(new_address_id, dict_values['function'])
                 # FIXME (Code fonctionnel quand on pourra utiliser contact_id et other_contact_ids; leur utilisation peut être vérifiée avec hasattr()
                 #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
                                   #{'contact_id': partner_id})
@@ -159,6 +176,19 @@ def migrate_contact(cr, pool):
             "WHERE id = %s"
             )
         cr.execute(query % (contact_id,))
+        row_values = cr.fetchall()
+        for row in row_values:
+            row_selected = [val or False for val in row]
+            dict_values = dict(zip(fields,row_selected))
+        #print("OLD CONTACT VALS : ", dict_values)
+        return dict_values
+    
+    def _load_address_vals(address_id, fields):
+        query = ("SELECT " + ', '.join(fields) + "\n"
+            "FROM res_partner\n"
+            "WHERE id = %s"
+            )
+        cr.execute(query % (address_id,))
         row_values = cr.fetchall()
         for row in row_values:
             row_selected = [val or False for val in row]
@@ -209,7 +239,7 @@ def migrate_contact(cr, pool):
                 _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact)
                 contact_created.append(dict_values['contact_id'])
                 already_contact.append(partner_address_id)
-            if partner_address_id:
+            if partner_address_id and verif:
                 _set_function(partner_address_id, dict_values['function'])
 
         # (Prévu por le reste des contacts non migrés)
@@ -227,7 +257,6 @@ def migrate_contact(cr, pool):
                 _create_partner(dict_values['id'], contact_vals, False, already_contact)
 
     _proccess_all_contacts()
-
 
 
 def migrate_base_contact(cr):
