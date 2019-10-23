@@ -125,7 +125,7 @@ def migrate_contact(cr, pool):
             "SET openupgrade_7_migrated_to_partner_id = %s "
             "WHERE id = %s" %
             (partner_id, contact_id))
-    def _create_partner(contact_id, vals, partner_address_id, already_contact, contact_created):
+    def _create_partner(contact_id, vals, partner_address_id, already_contact, contact_created, function):
         """
         Create a partner from a contact. Update the vals
         with the defaults only if the keys do not occur
@@ -163,13 +163,14 @@ def migrate_contact(cr, pool):
                 cr.execute("UPDATE res_partner "
                            "SET contact_id=%s "
                            "WHERE id=%s " % (partner_id,partner_address_id))
+                _set_function(partner_address_id, function)
             else:
                 #Cas où le RPA est déjà lié à un contact
                 #On charge les valeurs du RPA déjà lié pour encréer un nouveau afin de le lier au contact
                 address_vals = _load_address_vals(partner_address_id, partner_fields)
                 address_vals['contact_id'] = partner_id
                 new_address_id = partner_obj.create(cr, SUPERUSER_ID, address_vals)
-                _set_function(new_address_id, dict_values['function'])
+                _set_function(new_address_id, function)
                 # FIXME (Code fonctionnel quand on pourra utiliser contact_id et other_contact_ids; leur utilisation peut être vérifiée avec hasattr()
                 #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
                                   #{'contact_id': partner_id})
@@ -258,13 +259,11 @@ def migrate_contact(cr, pool):
             if dict_values['contact_id'] != False:
                 contact_vals = _load_contact_vals(dict_values['contact_id'], fields_contact)
                 if dict_values['contact_id'] in contact_created:
-                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,True)
+                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,True, dict_values['function'])
                 else:
-                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,False)
+                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,False, dict_values['function'])
                 contact_created.append(dict_values['contact_id'])
-                already_contact.append(partner_address_id)
-            if partner_address_id and verif:
-                _set_function(partner_address_id, dict_values['function'])
+                already_contact.append(partner_address_id)                
 
         # (Prévu por le reste des contacts non migrés)
         cr.execute(
@@ -278,7 +277,7 @@ def migrate_contact(cr, pool):
             dict_values = dict(zip(fields, row_selected))
 
             if dict_values['id'] not in contact_created:
-                _create_partner(dict_values['id'], contact_vals, False, already_contact,False)
+                _create_partner(dict_values['id'], contact_vals, False, already_contact,False, "")
 
     _proccess_all_contacts()
 
@@ -590,17 +589,21 @@ def migrate_partner_address(cr, pool):
             " AND openupgrade_7_migrated_to_partner_id IS NULL")
 
     # Process all addresses, default type first
+    print("DEFAULT FIRST .................................................................")
     process_address_type(cr, pool, fields.copy(), "type = 'default'")
 
     # then try the ones without type and without name
+    print("WITHOUT NAME ...................................................................")
     process_address_type(
         cr, pool, fields.copy(),
         "(type IS NULL OR type = '') AND (name IS NULL OR name = '')")
     # and only then just without type
+    print("WITHOUT TYPE ....................................................................")
     process_address_type(
         cr, pool, fields.copy(),
         "(type IS NULL OR type = '') AND name <> ''")
     # Not in clause is very slow. we replace them by an ubptade on a new column
+    print("RESTE ............................................................................")
     set_address_processed(processed_ids)
     process_address_type(
         cr, pool, fields.copy(),
