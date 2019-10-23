@@ -125,7 +125,7 @@ def migrate_contact(cr, pool):
             "SET openupgrade_7_migrated_to_partner_id = %s "
             "WHERE id = %s" %
             (partner_id, contact_id))
-    def _create_partner(contact_id, vals, partner_address_id, already_contact):
+    def _create_partner(contact_id, vals, partner_address_id, already_contact, contact_created):
         """
         Create a partner from a contact. Update the vals
         with the defaults only if the keys do not occur
@@ -133,15 +133,20 @@ def migrate_contact(cr, pool):
         on the obsolete contact table
         """
 
-        vals['contact_type'] = 'standalone'
-        contact_id_bis = vals.pop('id') 
+        if not contact_created:
+            #Cas où le contact n'a pas encore été créé, alors on en crée un ....
+            vals['contact_type'] = 'standalone'
+            contact_id_bis = vals.pop('id')
 
-        partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
-        vals['partner_id'] = partner_id
-        vals['id'] = contact_id_bis
+            partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
+            vals['partner_id'] = partner_id
+            vals['id'] = contact_id_bis
 
-        partner_id = int(partner_id)
-
+            partner_id = int(partner_id)
+        else:
+            #Sinon on prend le nouvel id correspond au contact
+            partner_id = _get_contact_partner_id(contact_id)
+        
         # partner_obj.write(cr, SUPERUSER_ID, [partner_id], {
         #     'parent_id': parent_id})
         # set_address_partner(address_id, partner_id)
@@ -152,12 +157,16 @@ def migrate_contact(cr, pool):
             cr.execute("UPDATE res_partner "
                        "SET contact_type='attached' "
                        "WHERE id=%s" % (partner_id,))
+            
             if partner_address_id not in already_contact:
+                #Cas où le RPA n'est lié à aucun contact
                 cr.execute("UPDATE res_partner "
                            "SET contact_id=%s "
                            "WHERE id=%s " % (partner_id,partner_address_id))
             else:
-                address_vals = load_address_vals(partner_address_id, fields_address)
+                #Cas où le RPA est déjà lié à un contact
+                #On charge les valeurs du RPA déjà lié pour encréer un nouveau afin de le lier au contact
+                address_vals = _load_address_vals(partner_address_id, partner_fields)
                 address_vals['contact_id'] = partner_id
                 new_address_id = partner_obj.create(cr, SUPERUSER_ID, address_vals)
                 _set_function(new_address_id, dict_values['function'])
@@ -207,6 +216,18 @@ def migrate_contact(cr, pool):
             new_id = row[0]
         #print("NEW ID :", new_id)
         return new_id
+    
+    def _get_contact_partner_id(old_contact_id):
+        query = ("SELECT openupgrade_7_migrated_to_partner_id "
+            "FROM res_partner_contact "
+            "WHERE id = %s"
+            )
+        cr.execute(query%(old_contact_id,))
+        row_values = cr.fetchall()
+        for row in row_values:
+            new_id = row[0]
+        #print("NEW ID :", new_id)
+        return new_id
 
     # PARTNER (contact) UPDATE
     def _set_function(partner_address_id, function):
@@ -236,7 +257,10 @@ def migrate_contact(cr, pool):
                 partner_address_id = _get_address_partner_id(dict_values['address_id'])
             if dict_values['contact_id'] != False:
                 contact_vals = _load_contact_vals(dict_values['contact_id'], fields_contact)
-                _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact)
+                if dict_values['contact_id'] in contact_created:
+                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,True)
+                else:
+                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,False)
                 contact_created.append(dict_values['contact_id'])
                 already_contact.append(partner_address_id)
             if partner_address_id and verif:
@@ -254,7 +278,7 @@ def migrate_contact(cr, pool):
             dict_values = dict(zip(fields, row_selected))
 
             if dict_values['id'] not in contact_created:
-                _create_partner(dict_values['id'], contact_vals, False, already_contact)
+                _create_partner(dict_values['id'], contact_vals, False, already_contact,False)
 
     _proccess_all_contacts()
 
