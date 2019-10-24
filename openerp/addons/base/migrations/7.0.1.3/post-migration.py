@@ -137,15 +137,16 @@ def migrate_contact(cr, pool):
             #Cas où le contact n'a pas encore été créé, alors on en crée un ....
             vals['contact_type'] = 'standalone'
             contact_id_bis = vals.pop('id')
-
+            if not vals['name']:
+                vals['name'] = ''
             partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
-            vals['partner_id'] = partner_id
             vals['id'] = contact_id_bis
 
             partner_id = int(partner_id)
         else:
             #Sinon on prend le nouvel id correspond au contact
             partner_id = _get_contact_partner_id(contact_id)
+            info("OLD PARTNER_ID %d NEW PARTNER_ID %d" %(contact_id, partner_id))
         
         # partner_obj.write(cr, SUPERUSER_ID, [partner_id], {
         #     'parent_id': parent_id})
@@ -169,7 +170,13 @@ def migrate_contact(cr, pool):
                 #On charge les valeurs du RPA déjà lié pour encréer un nouveau afin de le lier au contact
                 address_vals = _load_address_vals(partner_address_id, partner_fields)
                 address_vals['contact_id'] = partner_id
+                if not address_vals['name']:
+                    address_vals['name'] = ''
                 new_address_id = partner_obj.create(cr, SUPERUSER_ID, address_vals)
+                cr.execute("UPDATE res_partner "
+                           "SET contact_id=%s "
+                           "WHERE id=%s " % (partner_id,new_address_id))
+
                 _set_function(new_address_id, function)
                 # FIXME (Code fonctionnel quand on pourra utiliser contact_id et other_contact_ids; leur utilisation peut être vérifiée avec hasattr()
                 #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
@@ -242,6 +249,7 @@ def migrate_contact(cr, pool):
             "SELECT " + ', '.join(fields) + "\n"
             "FROM res_partner_job\n"
             "WHERE id is not null")
+
         row_values = cr.fetchall()
         already_contact = []
         contact_created = []
@@ -263,7 +271,7 @@ def migrate_contact(cr, pool):
                 else:
                     _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,False, dict_values['function'])
                 contact_created.append(dict_values['contact_id'])
-                already_contact.append(partner_address_id)                
+                already_contact.append(partner_address_id)
 
         # (Prévu por le reste des contacts non migrés)
         cr.execute(
