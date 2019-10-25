@@ -30,6 +30,10 @@ def info(*msgs):
         print(msg)
     sys.stdout.flush()
 
+def pgstr(val):
+    return "'" + val.replace("'", "''") + "'"
+
+
 force_defaults = {
     'ir.mail_server': [('active', True)],
     'ir.model.access': [('active', True)],
@@ -92,6 +96,10 @@ def migrate_contact(cr, pool):
         "WHERE table_name = 'res_partner';")
     partner_fields = [i[0] for i in cr.fetchall()]
 
+    # A cette étape les addresses sont déjà migrées
+    addresses_with_contact = []  # ids res.partner
+    contacts_created = []        # ids res.partner.contact
+
     # GET FIELDS
     def _get_contact_fields(fields_list):
         cr.execute(
@@ -99,12 +107,11 @@ def migrate_contact(cr, pool):
         "FROM information_schema.columns "
         "WHERE table_name = 'res_partner_contact';")
         available_fields = set(i[0] for i in cr.fetchall())
-        lost_fields = set(fields_list) - available_fields
-        info('## lost fields (res_partner_contact) ##', lost_fields)
+        info('## champs ignorés dans res_partner_contact ##', available_fields - set(fields_list))
         # keep fields that are found in res_partner // to avoid crash
         return available_fields.intersection(fields_list)
     fields_contact = _get_contact_fields(partner_fields)
-    info('## contact fields ##',fields_contact)
+    info('## contact fields ##', fields_contact)
 
     def _get_address_fields(fields_list):
         cr.execute(
@@ -112,28 +119,61 @@ def migrate_contact(cr, pool):
         "FROM information_schema.columns "
         "WHERE table_name = 'res_partner_address';")
         available_fields = set(i[0] for i in cr.fetchall())
-        lost_fields = set(fields_list) - available_fields
-        info('## lost fields (res_partner_address) ##', lost_fields)
+        info('## champs ignorés dans res_partner_address ##', available_fields - set(fields_list))
         # keep fields that are found in res_partner // to avoid crash
         return available_fields.intersection(fields_list)
     fields_address = _get_address_fields(partner_fields)
     info('## address fields ##',fields_address)
-    # PARTNER (contact) CREATION
+
+    def _fetch_rows(table, columns, whereclause=None):
+        # recupere les colonnes de la table specifie
+        cr.execute(
+            "SELECT " + ', '.join(columns) + "\n"
+            "FROM %s\n"
+            "%s" % (table,
+                    ('WHERE ' + whereclause) if whereclause else ''))
+
+        for row in cr.fetchall():
+            # yield permet de retourner les valeurs ligne par ligne
+            yield dict(zip(columns,
+                                   [val or False for val in row]
+                                   ))
+
+    def _fetch_row(*args,**kargs):
+        for row in _fetch_rows(*args,**kargs):
+            return row
+
+    def _fetch_val(table, column, whereclause):
+        cr.execute(
+            "SELECT %s FROM %s WHERE %s" % (
+                column, table, whereclause))
+        return cr.fetchone()[0]
+
+    # PARTNER (contact) CREATION functions
     def _set_contact_partner(contact_id, partner_id):
         cr.execute(
             "UPDATE res_partner_contact "
             "SET openupgrade_7_migrated_to_partner_id = %s "
             "WHERE id = %s" %
             (partner_id, contact_id))
-    def _create_partner(contact_id, vals, partner_address_id, already_contact, contact_created, function):
+        cr.execute(
+            "UPDATE res_partner "
+            "SET openupgrade_7_migrated_from_contact_id = %s "
+            "WHERE id = %s" %
+            (contact_id, partner_id))
+        contact_partner_hash[contact_id] = partner_id
+
+    def _create_partner_contact(contact_id, vals,
+                        partner_address_id=False,
+                        function=''):
         """
         Create a partner from a contact. Update the vals
         with the defaults only if the keys do not occur
         already in vals. Register the created partner_id
         on the obsolete contact table
         """
-
-        if not contact_created:
+        already_created = contact_id in contacts_created
+        if not already_created:
             #Cas où le contact n'a pas encore été créé, alors on en crée un ....
             vals['contact_type'] = 'standalone'
             contact_id_bis = vals.pop('id')
@@ -142,150 +182,109 @@ def migrate_contact(cr, pool):
             partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
             vals['id'] = contact_id_bis
 
-            partner_id = int(partner_id)
+            partner_contact_id = int(partner_id)
+            _set_contact_partner(contact_id, partner_contact_id)
         else:
             #Sinon on prend le nouvel id correspond au contact
-            partner_id = _get_contact_partner_id(contact_id)
-            info("OLD PARTNER_ID %d NEW PARTNER_ID %d" %(contact_id, partner_id))
-        
-        # partner_obj.write(cr, SUPERUSER_ID, [partner_id], {
-        #     'parent_id': parent_id})
-        # set_address_partner(address_id, partner_id)
+            partner_contact_id = _get_contact_partner_id(contact_id)
 
-        #print("PARTNER ID :", partner_id)
-        if partner_address_id != False:
-            #partner_obj.write(cr, SUPERUSER_ID, [partner_id], {'contact_type': 'attached'})
+        # partner_obj.write(cr, SUPERUSER_ID, [partner_contact_id], {
+        #     'parent_id': parent_id})
+        # set_address_partner(address_id, partner_contact_id)
+
+        #print("PARTNER ID :", partner_contact_id)
+        if partner_address_id:
+            #partner_obj.write(cr, SUPERUSER_ID, [partner_contact_id], {'contact_type': 'attached'})
             cr.execute("UPDATE res_partner "
                        "SET contact_type='attached' "
-                       "WHERE id=%s" % (partner_id,))
-            
-            if partner_address_id not in already_contact:
-                #Cas où le RPA n'est lié à aucun contact
-                cr.execute("UPDATE res_partner "
-                           "SET contact_id=%s "
-                           "WHERE id=%s " % (partner_id,partner_address_id))
-                _set_function(partner_address_id, function)
-            else:
+                       "WHERE id=%s" % (partner_contact_id,))
+
+            if partner_address_id in addresses_with_contact:
                 #Cas où le RPA est déjà lié à un contact
                 #On charge les valeurs du RPA déjà lié pour encréer un nouveau afin de le lier au contact
                 address_vals = _load_address_vals(partner_address_id, partner_fields)
-                address_vals['contact_id'] = partner_id
+                address_vals['contact_id'] = partner_contact_id
                 if not address_vals['name']:
                     address_vals['name'] = ''
-                new_address_id = partner_obj.create(cr, SUPERUSER_ID, address_vals)
-                cr.execute("UPDATE res_partner "
-                           "SET contact_id=%s "
-                           "WHERE id=%s " % (partner_id,new_address_id))
+                partner_address_id = partner_obj.create(cr, SUPERUSER_ID, address_vals)
 
-                _set_function(new_address_id, function)
-                # FIXME (Code fonctionnel quand on pourra utiliser contact_id et other_contact_ids; leur utilisation peut être vérifiée avec hasattr()
-                #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
-                                  #{'contact_id': partner_id})
-            #else:
-                #partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
-                                  #{'other_contact_ids': ([6,0,partner_id])})
-        _set_contact_partner(contact_id, partner_id)
-        return partner_id
+                # Pour le cas courant et
+                # le cas où le RPA n'est lié à aucun contact
+                # la suite est identique
 
-    def _load_contact_vals(contact_id, fields):
-        query = ("SELECT " + ', '.join(fields) + "\n"
-            "FROM res_partner_contact\n"
-            "WHERE id = %s"
-            )
-        cr.execute(query % (contact_id,))
-        row_values = cr.fetchall()
-        for row in row_values:
-            row_selected = [val or False for val in row]
-            dict_values = dict(zip(fields,row_selected))
-        #print("OLD CONTACT VALS : ", dict_values)
-        return dict_values
-    
-    def _load_address_vals(address_id, fields):
-        query = ("SELECT " + ', '.join(fields) + "\n"
-            "FROM res_partner\n"
-            "WHERE id = %s"
-            )
-        cr.execute(query % (address_id,))
-        row_values = cr.fetchall()
-        for row in row_values:
-            row_selected = [val or False for val in row]
-            dict_values = dict(zip(fields,row_selected))
-        #print("OLD CONTACT VALS : ", dict_values)
-        return dict_values
+            cr.execute(u"UPDATE res_partner "
+                       u"SET contact_id=%s, function=%s "
+                       u"WHERE id=%s " % (partner_contact_id, pgstr(function),
+                                          partner_address_id))
+            # other_contact_ids est un One2many, donc il y a un Many2one
+            # correspondant res.partner/contact_id (déjà géré)
+            addresses_with_contact.append(partner_address_id)
+        if not already_created:
+            contacts_created.append(contact_id)
+        return partner_contact_id
 
+    # GETTER FOR VALS AND NEW PARTNERS
+    def _load_contact_vals(contact_id, columns):
+        return _fetch_row('res_partner_contact', columns,
+                          'id = %s' % contact_id)
+
+    def _load_address_vals(address_id, columns):
+        return _fetch_row('res_partner', columns,
+                          'id = %s' % address_id)
+
+    address_partner_hash = {}  # cache for rpa -> rp
     def _get_address_partner_id(old_address_id):
-        query = ("SELECT openupgrade_7_migrated_to_partner_id "
-            "FROM res_partner_address "
-            "WHERE id = %s"
-            )
-        cr.execute(query%(old_address_id,))
-        row_values = cr.fetchall()
-        for row in row_values:
-            new_id = row[0]
-        #print("NEW ID :", new_id)
-        return new_id
-    
-    def _get_contact_partner_id(old_contact_id):
-        query = ("SELECT openupgrade_7_migrated_to_partner_id "
-            "FROM res_partner_contact "
-            "WHERE id = %s"
-            )
-        cr.execute(query%(old_contact_id,))
-        row_values = cr.fetchall()
-        for row in row_values:
-            new_id = row[0]
-        #print("NEW ID :", new_id)
+        new_id = address_partner_hash.get(old_address_id, False)
+        if not new_id:
+            new_id = _fetch_val('res_partner_address',
+                                'openupgrade_7_migrated_to_partner_id',
+                                'id = %s' % old_address_id)
+            address_partner_hash[old_address_id] = new_id
         return new_id
 
-    # PARTNER (contact) UPDATE
-    def _set_function(partner_address_id, function):
-        partner_obj.write(cr, SUPERUSER_ID, [partner_address_id],
-                          {'function': function})
+    contact_partner_hash = {}  # cache for rpc -> rp
+    def _get_contact_partner_id(old_contact_id):
+        new_id = contact_partner_hash.get(old_contact_id, False)
+        if not new_id:
+            new_id = _fetch_val('res_partner_contact',
+                                'openupgrade_7_migrated_to_partner_id',
+                                'id = %s' % old_contact_id)
+            contact_partner_hash[old_contact_id] = new_id
+        return new_id
+
 
     # MAIN PART
     def _proccess_all_contacts():
         # fetch all partner_job
-        cr.execute(
-            "SELECT " + ', '.join(fields) + "\n"
-            "FROM res_partner_job\n"
-            "WHERE id is not null")
-
-        row_values = cr.fetchall()
-        already_contact = []
-        contact_created = []
-
-        for row in row_values:
+        for dict_values in _fetch_rows(
+                'res_partner_job',
+                fields,
+                'id is not null'):
             # default
             contact_vals = {}
             partner_address_id = False
-
-            row_selected = [val or False for val in row]
-            dict_values = dict(zip(fields,row_selected))
 
             if dict_values['address_id'] != False:
                 partner_address_id = _get_address_partner_id(dict_values['address_id'])
             if dict_values['contact_id'] != False:
                 contact_vals = _load_contact_vals(dict_values['contact_id'], fields_contact)
-                if dict_values['contact_id'] in contact_created:
-                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,True, dict_values['function'])
-                else:
-                    _create_partner(dict_values['contact_id'], contact_vals, partner_address_id, already_contact,False, dict_values['function'])
-                contact_created.append(dict_values['contact_id'])
-                already_contact.append(partner_address_id)
+                _create_partner_contact(
+                    dict_values['contact_id'],
+                    contact_vals,
+                    partner_address_id,
+                    dict_values['function']
+                )
+
 
         # (Prévu por le reste des contacts non migrés)
-        cr.execute(
-            "SELECT id," + ', '.join(fields_contact) + "\n"
-            "FROM res_partner_contact\n"
-            "WHERE openupgrade_7_migrated_to_partner_id IS null\n"
-        )
-        row_values =  cr.fetchall()
-        for row in row_values:
-            row_selected = [val or False for val in row]
-            dict_values = dict(zip(fields, row_selected))
-
-            if dict_values['id'] not in contact_created:
-                _create_partner(dict_values['id'], contact_vals, False, already_contact,False, "")
+        for dict_values in _fetch_rows(
+                'res_partner_contact',
+                fields_contact,
+                'openupgrade_7_migrated_to_partner_id IS null'):
+            if dict_values['id'] not in contacts_created:
+                _create_partner_contact(
+                    dict_values['id'],
+                    dict_values)
 
     _proccess_all_contacts()
 
@@ -597,21 +596,17 @@ def migrate_partner_address(cr, pool):
             " AND openupgrade_7_migrated_to_partner_id IS NULL")
 
     # Process all addresses, default type first
-    print("DEFAULT FIRST .................................................................")
     process_address_type(cr, pool, fields.copy(), "type = 'default'")
 
     # then try the ones without type and without name
-    print("WITHOUT NAME ...................................................................")
     process_address_type(
         cr, pool, fields.copy(),
         "(type IS NULL OR type = '') AND (name IS NULL OR name = '')")
     # and only then just without type
-    print("WITHOUT TYPE ....................................................................")
     process_address_type(
         cr, pool, fields.copy(),
         "(type IS NULL OR type = '') AND name <> ''")
     # Not in clause is very slow. we replace them by an ubptade on a new column
-    print("RESTE ............................................................................")
     set_address_processed(processed_ids)
     process_address_type(
         cr, pool, fields.copy(),
