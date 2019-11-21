@@ -165,6 +165,7 @@ def migrate_contact(cr, pool):
 
     def _create_partner_contact(contact_id, vals,
                         partner_address_id=False,
+                        job_id=False,
                         function=''):
         """
         Create a partner from a contact. Update the vals
@@ -199,10 +200,21 @@ def migrate_contact(cr, pool):
                        "SET contact_type='attached' "
                        "WHERE id=%s" % (partner_contact_id,))
 
+            query_set_fields =  u"contact_id=%s" % partner_contact_id
+            query_set_fields +=  u", function=%s" % pgstr(function)
+            query_set_fields += (
+                u", openupgrade_7_migrated_from_job_id=%s" % job_id)
             if partner_address_id in addresses_with_contact:
                 #Cas où le RPA est déjà lié à un contact
                 #On charge les valeurs du RPA déjà lié pour encréer un nouveau afin de le lier au contact
-                address_vals = _load_address_vals(partner_address_id, partner_fields)
+                address_vals = _load_address_vals(
+                    partner_address_id,
+                    partner_fields +
+                    ['openupgrade_7_migrated_from_address_id'])
+                query_set_fields += (
+                    u", openupgrade_7_migrated_from_address_id=%s" %
+                    address_vals['openupgrade_7_migrated_from_address_id']
+                )
                 address_vals['contact_id'] = partner_contact_id
                 if not address_vals['name']:
                     address_vals['name'] = ''
@@ -211,11 +223,8 @@ def migrate_contact(cr, pool):
                 # Pour le cas courant et
                 # le cas où le RPA n'est lié à aucun contact
                 # la suite est identique
-
-            cr.execute(u"UPDATE res_partner "
-                       u"SET contact_id=%s, function=%s "
-                       u"WHERE id=%s " % (partner_contact_id, pgstr(function),
-                                          partner_address_id))
+            cr.execute(u"UPDATE res_partner SET %s WHERE id=%s " % (
+                query_set_fields, partner_address_id))
             # other_contact_ids est un One2many, donc il y a un Many2one
             # correspondant res.partner/contact_id (déjà géré)
             addresses_with_contact.append(partner_address_id)
@@ -271,8 +280,9 @@ def migrate_contact(cr, pool):
                 _create_partner_contact(
                     dict_values['contact_id'],
                     contact_vals,
-                    partner_address_id,
-                    dict_values['function']
+                    partner_address_id=partner_address_id,
+                    function=dict_values['function'],
+                    job_id=dict_values['id']
                 )
 
 
@@ -422,6 +432,10 @@ def migrate_partner_address(cr, pool):
     cr.execute(
         "ALTER TABLE res_partner "
         "ADD column openupgrade_7_migrated_from_address_id "
+        " INTEGER")
+    cr.execute(
+        "ALTER TABLE res_partner "
+        "ADD column openupgrade_7_migrated_from_job_id "
         " INTEGER")
     cr.execute(
         "ALTER TABLE res_partner_address ADD FOREIGN KEY "
