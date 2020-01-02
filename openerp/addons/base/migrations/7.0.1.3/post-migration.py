@@ -85,6 +85,10 @@ def migrate_contact(cr, pool):
         "ALTER TABLE res_partner_contact ADD FOREIGN KEY "
         "(openupgrade_7_migrated_to_partner_id) "
         "REFERENCES res_partner ON DELETE SET NULL")
+    cr.execute(
+        "ALTER TABLE res_partner "
+        "ADD column openupgrade_7_migrated_from_user_id "
+        " INTEGER")
 
     fields = ['id', 'function', 'sequence_partner', 'address_id', 'fax', 'extension', 'sequence_contact', 'date_start', 'date_stop',
               'contact_id', 'phone', 'state', 'other', 'email', 'id_sfl', 'id_adherent', 'mobile', 'default_ok', 'actif_ok', 'active',
@@ -98,7 +102,6 @@ def migrate_contact(cr, pool):
 
     # A cette étape les addresses sont déjà migrées
     addresses_with_contact = []  # ids res.partner
-    contacts_created = []        # ids res.partner.contact
 
     # GET FIELDS
     def _get_contact_fields(fields_list):
@@ -150,44 +153,58 @@ def migrate_contact(cr, pool):
         return cr.fetchone()[0]
 
     # PARTNER (contact) CREATION functions
-    def _set_contact_partner(contact_id, partner_id):
+    def _set_contact_partner(contact_id, partner_id, user_id=False):
         cr.execute(
             "UPDATE res_partner_contact "
             "SET openupgrade_7_migrated_to_partner_id = %s "
             "WHERE id = %s" %
             (partner_id, contact_id))
         cr.execute(
-            "UPDATE res_partner "
-            "SET openupgrade_7_migrated_from_contact_id = %s "
-            "WHERE id = %s" %
-            (contact_id, partner_id))
+          "UPDATE res_partner "
+          "SET openupgrade_7_migrated_from_contact_id = %s, "
+          "    openupgrade_7_migrated_from_user_id = %s "
+          "WHERE id = %s" %
+          (contact_id, user_id or 'null', partner_id))
         contact_partner_hash[contact_id] = partner_id
 
     def _create_partner_contact(contact_id, vals,
                         partner_address_id=False,
                         job_id=False,
-                        function=''):
+                        function='', partner_contact_id=False):
         """
         Create a partner from a contact. Update the vals
         with the defaults only if the keys do not occur
         already in vals. Register the created partner_id
         on the obsolete contact table
         """
-        already_created = contact_id in contacts_created
-        if not already_created:
-            #Cas où le contact n'a pas encore été créé, alors on en crée un ....
+        contact_id_bis = vals.pop('id')
+        if not partner_contact_id:
             vals['contact_type'] = 'standalone'
-            contact_id_bis = vals.pop('id')
+            #Cas où le contact n'a pas encore été créé, alors on en crée un ....
             if not vals['name']:
                 vals['name'] = ''
             partner_id = partner_obj.create(cr, SUPERUSER_ID, vals)
-            vals['id'] = contact_id_bis
 
             partner_contact_id = int(partner_id)
             _set_contact_partner(contact_id, partner_contact_id)
         else:
             #Sinon on prend le nouvel id correspond au contact
-            partner_contact_id = _get_contact_partner_id(contact_id)
+            if partners_to_update.get(partner_contact_id, False):
+                #maj des infos
+                vals['contact_type'] = 'standalone'
+                query_set_fields = ",".join(
+                    [ u"%s=%s" % (
+                        k,
+                        (isinstance(v, str) or isinstance(v, unicode))
+                        and pgstr(v) or
+                        isinstance(v, bool) and ('true' if v else 'false')
+                        or str(v))
+                     for k,v in vals.iteritems() if v])
+                cr.execute(u"UPDATE res_partner SET %s WHERE id=%s " % (
+                    query_set_fields, partner_contact_id))
+                partners_to_update.pop(partner_contact_id)
+        vals['id'] = contact_id_bis
+
 
         # partner_obj.write(cr, SUPERUSER_ID, [partner_contact_id], {
         #     'parent_id': parent_id})
@@ -228,8 +245,6 @@ def migrate_contact(cr, pool):
             # other_contact_ids est un One2many, donc il y a un Many2one
             # correspondant res.partner/contact_id (déjà géré)
             addresses_with_contact.append(partner_address_id)
-        if not already_created:
-            contacts_created.append(contact_id)
         return partner_contact_id
 
     # GETTER FOR VALS AND NEW PARTNERS
@@ -252,6 +267,22 @@ def migrate_contact(cr, pool):
         return new_id
 
     contact_partner_hash = {}  # cache for rpc -> rp
+    partners_to_update = {}
+
+    cr.execute(
+        "select rpc.id, rpc.user_id, ru.openupgrade_7_created_partner_id "
+        "from res_partner_contact rpc "
+        "left outer join res_users ru on rpc.user_id = ru.id "
+        "where rpc.user_id is not null;");
+
+    for row in cr.fetchall():
+        old_contact_id, user_id, new_id = row
+        _set_contact_partner(old_contact_id, new_id, user_id)
+        partners_to_update[new_id] = True
+
+    def _get_contact_user_id(old_contact_id, default=False):
+         return contact_user_hash.get(old_contact_id, default)
+
     def _get_contact_partner_id(old_contact_id):
         new_id = contact_partner_hash.get(old_contact_id, False)
         if not new_id:
@@ -282,7 +313,8 @@ def migrate_contact(cr, pool):
                     contact_vals,
                     partner_address_id=partner_address_id,
                     function=dict_values['function'],
-                    job_id=dict_values['id']
+                    job_id=dict_values['id'],
+                    partner_contact_id=_get_contact_partner_id(dict_values['contact_id'])
                 )
 
 
@@ -291,7 +323,7 @@ def migrate_contact(cr, pool):
                 'res_partner_contact',
                 fields_contact,
                 'openupgrade_7_migrated_to_partner_id IS null'):
-            if dict_values['id'] not in contacts_created:
+            if not dict_values['id'] in contact_partner_hash:
                 _create_partner_contact(
                     dict_values['id'],
                     dict_values)
