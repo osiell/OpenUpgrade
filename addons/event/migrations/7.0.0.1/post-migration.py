@@ -111,6 +111,7 @@ def migrate_contacts2(cr, pool):
         ('res_partner_newsletter_subscription', 'contact_id'),
 
         ('res_partner_contact_mailing_list_rel', 'contact_id'),
+        ('pir_contact_list_contact', 'contact_id'),
         # ('res_users', 'contact_id'),
     ]
 
@@ -171,6 +172,8 @@ def migrate_contacts2(cr, pool):
     'res_partner_contact_category_job_contact_id_fkey',
     'res_partner_contact_mailing_list_rel_contact_id_fkey',
     'res_partner_job_contact_id_fkey',
+    'pir_contact_list_contact_contact_id_fkey',
+    'pir_contact_list_contact_contact_list_id_fkey',
     ]
 
     for modele in modeles_champs:
