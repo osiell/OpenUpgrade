@@ -174,7 +174,13 @@ def migrate_contacts2(cr, pool):
     'res_partner_job_contact_id_fkey',
     'pir_contact_list_contact_contact_id_fkey',
     'pir_contact_list_contact_contact_list_id_fkey',
+    # 'mail_message_contact_id_fkey'
     ]
+
+    cr.execute(
+        "ALTER TABLE res_partner_contact_mailing_list_rel "
+        "DROP CONSTRAINT res_partner_contact_mailing_list_contact_id_mailing_list_id_key"
+    )
 
     for modele in modeles_champs:
         logger.info('event/post-mig  %s.%s' % modele)
